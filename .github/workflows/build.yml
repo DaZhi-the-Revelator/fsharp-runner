@@ -39,9 +39,11 @@ jobs:
           "$HOME/.cargo/bin/rustup" target add x86_64-unknown-linux-musl
 
       - name: Checkout keen
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
           git clone --depth=1 --branch "$KEEN_REF" \
-            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+            "https://${CODEBERG_TOKEN}@codeberg.org/DaZhi-the-Revelator/keen.git" keen
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -114,9 +116,11 @@ jobs:
           "$HOME/.cargo/bin/rustup" target add aarch64-unknown-linux-musl
 
       - name: Checkout keen
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
           git clone --depth=1 --branch "$KEEN_REF" \
-            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+            "https://${CODEBERG_TOKEN}@codeberg.org/DaZhi-the-Revelator/keen.git" keen
 
       - name: Configure cross-compilation
         run: |
@@ -175,9 +179,11 @@ jobs:
           echo "$env:USERPROFILE\.cargo\bin" >> $env:GITHUB_PATH
 
       - name: Checkout keen
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
           git clone --depth=1 --branch "$env:KEEN_REF" `
-            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+            "https://$($env:CODEBERG_TOKEN)@codeberg.org/DaZhi-the-Revelator/keen.git" keen
 
       - name: Build Keen binary
         working-directory: keen
@@ -242,9 +248,11 @@ jobs:
           "$HOME/.cargo/bin/rustup" target add ${{ matrix.rust_target }}
 
       - name: Checkout keen
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
           git clone --depth=1 --branch "$KEEN_REF" \
-            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+            "https://${CODEBERG_TOKEN}@codeberg.org/DaZhi-the-Revelator/keen.git" keen
 
       - name: Build Keen binary
         working-directory: keen
@@ -285,9 +293,11 @@ jobs:
 
     steps:
       - name: Checkout keen CHANGELOG
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
           git clone --depth=1 --branch "$KEEN_REF" \
-            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+            "https://${CODEBERG_TOKEN}@codeberg.org/DaZhi-the-Revelator/keen.git" keen
 
       - name: Download all artifacts
         uses: actions/download-artifact@v7
