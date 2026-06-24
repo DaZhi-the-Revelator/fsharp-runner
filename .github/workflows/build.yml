@@ -1,0 +1,367 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      keen_ref:
+        description: Keen tag to build and release (e.g. v1.0.0)
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KEEN_REF: ${{ github.event.inputs.keen_ref }}
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_NOLOGO: true
+
+jobs:
+  build-linux:
+    name: Build linux-x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q musl-tools musl-dev
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Rust stable and musl target
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          "$HOME/.cargo/bin/rustup" target add x86_64-unknown-linux-musl
+
+      - name: Checkout keen
+        run: |
+          git clone --depth=1 --branch "$KEEN_REF" \
+            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            keen/target
+          key: cargo-linux-musl-x64-${{ hashFiles('keen/Cargo.lock') }}
+          restore-keys: cargo-linux-musl-x64-
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-linux-musl-x64-${{ hashFiles('keen/sidecar/keen-sidecar.fsproj') }}
+          restore-keys: nuget-linux-musl-x64-
+
+      - name: Build Keen binary
+        working-directory: keen
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Publish sidecar
+        working-directory: keen
+        run: |
+          dotnet publish sidecar/keen-sidecar.fsproj \
+            -c Release \
+            -r linux-musl-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true \
+            -o dist/sidecar
+
+      - name: Stage archive
+        working-directory: keen
+        run: |
+          mkdir -p staging/keen/sidecar
+          cp target/x86_64-unknown-linux-musl/release/keen staging/keen/
+          cp README.md LICENSE staging/keen/
+          cp dist/sidecar/keen-sidecar staging/keen/sidecar/
+          tar -czf ../keen-linux-x86_64.tar.gz -C staging keen
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-x86_64
+          path: keen-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+
+  build-linux-aarch64:
+    name: Build linux-aarch64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-aarch64-linux-gnu musl-tools
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Rust stable and aarch64-musl target
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          "$HOME/.cargo/bin/rustup" target add aarch64-unknown-linux-musl
+
+      - name: Checkout keen
+        run: |
+          git clone --depth=1 --branch "$KEEN_REF" \
+            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+
+      - name: Configure cross-compilation
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml <<'EOF'
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Build Keen binary
+        working-directory: keen
+        run: cargo build --release --target aarch64-unknown-linux-musl
+
+      - name: Publish sidecar
+        working-directory: keen
+        run: |
+          dotnet publish sidecar/keen-sidecar.fsproj \
+            -c Release \
+            -r linux-musl-arm64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true \
+            -o dist/sidecar
+
+      - name: Stage archive
+        working-directory: keen
+        run: |
+          mkdir -p staging/keen/sidecar
+          cp target/aarch64-unknown-linux-musl/release/keen staging/keen/
+          cp README.md LICENSE staging/keen/
+          cp dist/sidecar/keen-sidecar staging/keen/sidecar/
+          tar -czf ../keen-linux-aarch64.tar.gz -C staging keen
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-aarch64
+          path: keen-linux-aarch64.tar.gz
+          if-no-files-found: error
+
+
+  build-windows:
+    name: Build windows-x86_64
+    runs-on: windows-latest
+
+    steps:
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Rust stable
+        run: |
+          curl -sSf https://win.rustup.rs -o rustup-init.exe
+          .\rustup-init.exe -y --default-toolchain stable
+          echo "$env:USERPROFILE\.cargo\bin" >> $env:GITHUB_PATH
+
+      - name: Checkout keen
+        run: |
+          git clone --depth=1 --branch "$env:KEEN_REF" `
+            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+
+      - name: Build Keen binary
+        working-directory: keen
+        run: cargo build --release
+
+      - name: Publish sidecar
+        working-directory: keen
+        run: |
+          dotnet publish sidecar/keen-sidecar.fsproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:PublishTrimmed=true `
+            -o dist\sidecar
+
+      - name: Stage archive
+        working-directory: keen
+        run: |
+          New-Item -ItemType Directory -Force -Path staging\keen\sidecar | Out-Null
+          Copy-Item target\release\keen.exe staging\keen\
+          Copy-Item README.md staging\keen\
+          Copy-Item LICENSE staging\keen\
+          Copy-Item dist\sidecar\keen-sidecar.exe staging\keen\sidecar\
+          Compress-Archive -Path staging\keen -DestinationPath ..\keen-windows-x86_64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-x86_64
+          path: keen-windows-x86_64.zip
+          if-no-files-found: error
+
+
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+            rust_target: aarch64-apple-darwin
+            dotnet_rid: osx-arm64
+          - arch: x86_64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            dotnet_rid: osx-x64
+      fail-fast: false
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Rust stable
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          "$HOME/.cargo/bin/rustup" target add ${{ matrix.rust_target }}
+
+      - name: Checkout keen
+        run: |
+          git clone --depth=1 --branch "$KEEN_REF" \
+            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+
+      - name: Build Keen binary
+        working-directory: keen
+        run: cargo build --release --target ${{ matrix.rust_target }}
+
+      - name: Publish sidecar
+        working-directory: keen
+        run: |
+          dotnet publish sidecar/keen-sidecar.fsproj \
+            -c Release \
+            -r ${{ matrix.dotnet_rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true \
+            -o dist/sidecar
+
+      - name: Stage archive
+        working-directory: keen
+        run: |
+          mkdir -p staging/keen/sidecar
+          cp target/${{ matrix.rust_target }}/release/keen staging/keen/
+          cp README.md LICENSE staging/keen/
+          cp dist/sidecar/keen-sidecar staging/keen/sidecar/
+          tar -czf ../keen-macos-${{ matrix.arch }}.tar.gz -C staging keen
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-${{ matrix.arch }}
+          path: keen-macos-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+
+  release:
+    name: Create Codeberg Release
+    needs: [build-linux, build-linux-aarch64, build-windows, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout keen CHANGELOG
+        run: |
+          git clone --depth=1 --branch "$KEEN_REF" \
+            "https://codeberg.org/DaZhi-the-Revelator/keen.git" keen
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -exec cp {} release-assets/ \;
+          ls -lh release-assets/
+
+      - name: Extract changelog body
+        id: changelog
+        run: |
+          TAG="${{ github.event.inputs.keen_ref }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          python3 - "${TAG}" <<'PYEOF' > body.txt
+          import sys, re, pathlib
+
+          tag = sys.argv[1]
+          text = pathlib.Path("keen/Changelog.md").read_text(encoding="utf-8")
+
+          pattern = rf"(?m)^## \[{re.escape(tag)}\].*?\n(.*?)(?=^## \[|\Z)"
+          m = re.search(pattern, text, re.DOTALL)
+
+          print(m.group(1).strip() if m else "")
+          PYEOF
+
+          echo "Body extracted: $(wc -c < body.txt) bytes"
+
+      - name: Create Codeberg release and upload assets
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          TAG: ${{ steps.changelog.outputs.tag }}
+          API: https://codeberg.org/api/v1
+          REPO: DaZhi-the-Revelator/keen
+        run: |
+          set -e
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: token ${CODEBERG_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary "$(jq -n \
+              --arg tag "${TAG}" \
+              --rawfile body body.txt \
+              '{tag_name:$tag,name:$tag,body:$body,draft:false,prerelease:false}')" \
+            "${API}/repos/${REPO}/releases")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP status: ${HTTP_CODE}"
+          echo "Response body: ${BODY}"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Error: Codeberg API returned HTTP ${HTTP_CODE}"
+            exit 1
+          fi
+
+          RELEASE_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+          echo "Release ID: ${RELEASE_ID}"
+
+          for asset in release-assets/*; do
+            name=$(basename "$asset")
+            echo "Uploading ${name}..."
+            curl -sf -X POST \
+              -H "Authorization: token ${CODEBERG_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${asset}" \
+              "${API}/repos/${REPO}/releases/${RELEASE_ID}/assets?name=${name}"
+          done
+
+          echo "Release ${TAG} published to Codeberg."
