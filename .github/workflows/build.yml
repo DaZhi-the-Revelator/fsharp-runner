@@ -248,11 +248,17 @@ jobs:
           "$HOME/.cargo/bin/rustup" target add ${{ matrix.rust_target }}
 
       - name: Checkout keen
+        uses: nick-fields/retry@v3
         env:
           CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
-        run: |
-          git clone --depth=1 --branch "$KEEN_REF" \
+        with:
+          timeout_minutes: 10   # Max time allowed per single attempt
+          max_attempts: 3       # Number of retry attempts before giving up
+          retry_on: error       # Retry if the command exits with a non-zero code
+          command: |
+            git clone --depth=1 --branch "$KEEN_REF" \
             "https://${CODEBERG_TOKEN}@codeberg.org/DaZhi-the-Revelator/keen.git" keen
+
 
       - name: Build Keen binary
         working-directory: keen
